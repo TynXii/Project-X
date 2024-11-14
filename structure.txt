@@ -1,18 +1,15 @@
 /Project-X
     /server
-        server.c               # Main server code
-        server.h               # Server-related header file
-        encryption.c           # File encryption functions
-        encryption.h           # Header for encryption
-        screenshot.c           # Screenshot-related functions
-        screenshot.h           # Header for screenshot functions
-        protocol.c             # Protocol handling functions
-        protocol.h             # Header for protocol functions
-        Makefile               # Makefile to compile server
+        server.c
+        encryption.c
+        encryption.h
+        screenshot.c
+        screenshot.h
+        protocol.c
+        protocol.h
+        Makefile
     /client
-        client.py              # Main client code (Python)
-        protocol.py            # Protocol handling in Python (client-side)
-        config.py              # Configuration settings (optional)
-    /common
-        utils.c                # Common utility functions (for both server and client)
-        utils.h
+        client.py
+        protocol.py
+    example.txt
+    structure.txt
