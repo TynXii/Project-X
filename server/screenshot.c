@@ -57,7 +57,7 @@ int save_jpeg(const char *filename, XImage *image) {
     return 0;
 }
 
-// Function to capture a screenshot and save it as an XImage
+// Function to capture a screenshot and save it as a JPEG
 int take_screenshot(const char *screenshot_filename) {
     Display *display = XOpenDisplay(NULL);
     if (display == NULL) {
