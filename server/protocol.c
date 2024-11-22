@@ -127,7 +127,7 @@ int recv_data(int client_socket, char *buffer, size_t buffer_size) {
 }
 
 int set_packet(packet_t *packet, char *buffer) {
-    if (strncmp(buffer, MAGIC_STR, sizeof(MAGIC_STR) - 1) != 0) {
+    if (strncmp(buffer, MAGIC_NUMBER, sizeof(MAGIC_NUMBER) - 1) != 0) {
         perror("Not withstanding protocol requirements")
         return -1;
     }
@@ -162,16 +162,7 @@ void handle_request(int client_socket)
         exit(EXIT_FAILURE);
     }
 
-    switch (packet->mode)
-    {
-        case SCREENSHOT:
-            take_screenshot("screenshot.jpg");
-            handle_file_transfer(client_socket, "screenshot.jpg");
-
-        case ENCRYPT:
-            char *
-            encrypt_file()
-    }
+    
 
 
 
