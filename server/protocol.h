@@ -6,11 +6,11 @@
 // Main Packet Modes
 #define SCREENSHOT_MODE 0x01
 #define ENCRYPT_MODE 0x02
+
 // Modes meant for handling the main packet modes
 #define FILE_TRANSFER_MODE 0x03
 #define ACK_MODE 0x04
 #define FINAL_ACK_MODE 0x05
-
 
 
 
@@ -29,6 +29,7 @@
 
 
 // Packet structure
+
 typedef struct {
     char magic_number[MAGIC_NUMBER];
     char mode;
@@ -42,13 +43,14 @@ typedef struct {
 
 
 // Protocol Packet handling functions
-int set_packet(protocol_packet_t *packet, const char *buffer, char mode)
+
+int set_packet(protocol_packet_t *packet, const char *payload, char mode);
 void serialize_packet(const protocol_packet_t *packet, char *buffer);
 int calculate_checksum(const char *data, size_t length);
 int handle_request(int client_socket);
 int handle_file_transfer(int client_socket, const char *file_name,const protocol_packet_t *packet, const char mode);
-int send_acknowledgment(int client_socket);
-int send_final_acknowledgment(int client_socket)
+int handle_acknowledgment(int client_socket, protocol_packet_t *packet, char action_mode, char packet_mode)int get_file(int client_socket, const unsigned long long file_size, const char *file_name);
+int send_file(int client_socket, const unsigned long long file_size, const char *file_name);
 int initialize_communication(int port);
 void close_communication(int sock);
 int recv_data(int client_socket, char *buffer, size_t buffer_size);
