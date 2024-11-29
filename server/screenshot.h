@@ -5,6 +5,7 @@
 #include <X11/Xutil.h>
 #include <stdio.h>
 
+
 // Function to save XImage to JPEG format
 int save_jpeg(const char *filename, XImage *image);
 

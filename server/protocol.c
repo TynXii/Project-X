@@ -5,35 +5,100 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 
 #include "protocol.h"
 #include "screenshot.h"
 #include "encryption.h"
 
 
-#define PORT 8080
-#define BUFFER_SIZE 1024
-#define SCREENSHOT 0x01
-#define ENCRYPT_FILE 0x02
-#define BEGIN_FILE_TRANSFER 0x03 // Should only be interpreted by client
-#define FILE_TRANSFER 0x04
-#define ACK 0x05
-#define FINAL_ACK 0x06
-#define MAGIC_NUMBER 0x484D53 // Encoded 'HMS'
-#define MAGIC_STR "HMS"
 
 
-typedef struct {
-    char magic_number[4];
-    char mode;
-    short payload_length;
-    short checksum;
-    char payload[1017];
+int set_packet(protocol_packet_t *packet, const char *buffer, char mode) {
+    memset(packet, 0, sizeof(protocol_packet_t));
 
-} packet_t;
+    memcpy(packet->magic_number, (char[])MAGIC_NUMBER, sizeof(packet->magic_number));
+
+    if (buffer == NULL) {
+        if (mode == ACK_MODE || mode == FINAL_ACK_MODE) {
+            packet->mode = mode;
+            packet->payload_length = 0;
+            packet->checksum = 0; // No payload to calculate a checksum
+            return 0;
+        } else {
+            perror("Invalid mode for NULL payload");
+            return -1;
+        }
+    }
+
+    size_t payload_length = strlen(buffer);
+    if (payload_length > MAX_PAYLOAD_SIZE) {
+        perror("Payload exceeds maximum size");
+        return -1;
+    }
+
+    packet->mode = mode;
+    packet->payload_length = payload_length;
+    memcpy(packet->payload, buffer, payload_length);
+    packet->checksum = calculate_checksum(packet->payload, packet->payload_length);
+
+    return 0;
+}
 
 
-void close_communication(int sock) {
+
+
+// Interperet packet and serialize it based on a buffer(Payload)
+void serialize_packet(const protocol_packet_t *packet, char *buffer) {
+    size_t offset = 0;
+
+    // Serialize the magic number
+    memcpy(buffer + offset, packet->magic_number, sizeof(packet->magic_number));
+    offset += sizeof(packet->magic_number);
+
+    // Serialize the mode
+    buffer[offset] = packet->mode;
+    offset += sizeof(packet->mode);
+
+    // Serialize the payload length
+    memcpy(buffer + offset, &packet->payload_length, sizeof(packet->payload_length));
+    offset += sizeof(packet->payload_length);
+
+    // Serialize the checksum
+    memcpy(buffer + offset, &packet->checksum, sizeof(packet->checksum));
+    offset += sizeof(packet->checksum);
+
+    // Serialize the payload, if present
+    if (packet->payload_length > 0) {
+        memcpy(buffer + offset, packet->payload, packet->payload_length);
+    }
+}
+
+
+int send_packet(int client_socket, const protocol_packet_t *packet)
+{
+    size_t packet_size;
+    char buff[HEADER_SIZE+packet->payload_length];
+
+
+    packet_size = HEADER_SIZE+packet->payload_length;
+
+    serialize_packet(packet, buff);
+
+    if (send(client_socket, buff, packet_size) < 0)
+    {
+        perror("Send failed");
+        return -1;
+    }
+
+    return 0;
+
+}
+
+
+
+void close_communication(int sock) 
+{
     close(sock);
     printf("Connection closed.\n");
 }
@@ -88,65 +153,173 @@ int initialize_communication(int port)
 }
 
 
-
-int recv_data(int client_socket, char *buffer, size_t buffer_size) {
+int recv_data(int client_socket, char *buffer, size_t buffer_size) 
+{
     int bytes_received;
     int retry_count = 0;
 
     while (1) {
-        bytes_received = recv(client_socket, buffer, buffer_size - 1, 0);
+        bytes_received = recv(client_socket, buffer, buffer_size, 0);
 
-        if (bytes_received < 0) {
-            if (errno == EINTR) {
-                // Retry after an interruption
-                continue;
-            } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                // Retry due to temporarily no data available
-                if (retry_count < MAX_RETRIES) {
-                    retry_count++;
-                    usleep(1000); // Small delay before retry (1ms)
+        if (bytes_received < 0) 
+        {
+            switch (errno) {
+                case EINTR:
+                    // Retry after an interruption
                     continue;
-                } else {
-                    printf("Max retries reached, connection may be stalled.\n");
+                case EAGAIN:
+                case EWOULDBLOCK:
+                    // Retry due to temporarily no data available
+                    if (retry_count < MAX_RETRIES) {
+                        retry_count++;
+                        usleep(RETRY_DELAY); // Small delay before retry (1ms)
+                        continue;
+                    } 
+                    else 
+                    {
+                        printf("Max retries reached, connection may be stalled.\n");
+                        return -1;
+                    }
+                default:
+                    // Fatal error
+                    perror("Receiving data failed");
                     return -1;
-                }
-            } else {
-                // Fatal error
-                perror("Receiving data failed");
-                return -1;
             }
-        } else if (bytes_received == 0) {
+        } 
+        else if (bytes_received == 0) 
+        {
             // Connection closed by peer
             return 0;
-        } else {
+        } 
+        else 
+        {
             // Data successfully received
-            buffer[bytes_received] = '\0';
             return bytes_received;
         }
     }
 }
 
-int set_packet(packet_t *packet, char *buffer) {
-    if (strncmp(buffer, MAGIC_NUMBER, sizeof(MAGIC_NUMBER) - 1) != 0) {
-        perror("Not withstanding protocol requirements")
-        return -1;
+int get_file(int client_socket, const unsigned long long file_size, const char *file_name)
+{
+    unsigned long long remaining_data_size;
+    size_t packet_size;
+    char buff[BUFFER_SIZE];
+    FILE *given_file;
+
+
+    given_file = fopen(file_name, "ab");
+    remaining_data_size = file_size;
+
+    while (remaining_data_size > 0) 
+    {
+        
+        packet_size = (BUFFER_SIZE > remaining_data_size) ? remaining_data_size : BUFFER_SIZE;
+
+        if (recv_data(client_socket, buff, packet_size) <= 0)
+        {
+            perror("Receiving data failed.");
+            return -1;
+        }
+        if (fwrite(buff[HEADER_SIZE], sizeof(char), packet_size-HEADER_SIZE, given_file)!= packet_size)
+        {
+            perror("Writing to file failed");
+            return -1;
+        }
+        remaining_data_size -= packet_size;
     }
 
-    memcpy(packet->magic_number, buffer, sizeof(MAGIC_STR) - 1);
-    packet->mode = buffer[3];
-    packet->payload_length = *(short *)(buffer + 4);
-    packet->checksum = *(short *)(buffer + 6);
-    memcpy(packet->payload, buffer + 8, packet->payload_length);
+    return remaining_data_size;
 
-    return 0;
+
 }
 
 
-void handle_request(int client_socket) 
+int send_file(int client_socket, const unsigned long long file_size, const char *file_name)
+{
+    unsigned long long remaining_data_size;
+    size_t packet_size;
+    char buff[BUFFER_SIZE];
+    FILE *given_file;
+    int packet_size;
+    protocol_packet_t *s_packet;
+
+    given_file = fopen(file_name, "rb");
+    remaining_data_size = file_size;
+
+    while (remaining_data_size > 0) 
+    {
+        packet_size = (MAX_PAYLOAD_SIZE > remaining_data_size) ? remaining_data_size : MAX_PAYLOAD_SIZE;
+
+        if (fread(buff, sizeof(char), packet_size, given_file) != packet_size)
+        {
+            perror("Reading from file failed.");
+            return -1;
+        }
+
+        if (set_packet(s_packet, buff) < 0)
+        {
+            perror("Packet initialization failed.");
+            return -1;
+        }
+
+        if (send_packet(client_socket, s_packet) < 0)
+        {
+            perror("Packet sending failed.");
+            return -1;
+        }
+
+        remaining_data_size -= packet_size;
+
+        return 0;
+
+
+
+
+        
+
+    }
+
+
+
+}
+
+
+
+int handle_file_transfer(int client_socket, const char *file_name, const protocol_packet_t *packet, const char mode)
+{
+    struct stat file_stat;
+
+    switch (mode) 
+    {
+        
+        case SCREENSHOT_MODE:
+            if (take_screenshot(file_name) < 0)
+            {
+                perror("Screenshot failed.");
+                return -1;
+            }
+            stat(file_name, &file_stat);
+
+        case ENCRYPT_MODE:
+            file_stat.st_size = *((unsigned long long *) packet->payload) // An ENCRYPT_MODE packet should have the file size specified in its payload
+
+
+
+
+
+            
+
+    }
+
+
+}
+
+
+int handle_request(int client_socket) 
 {
     int client_socket;
-    char buffer[BUFFER_SIZE+1] = { 0 };
-    packet_t* packet;
+    char buffer[BUFFER_SIZE];
+    protocol_packet_t* client_packet, server_packet;
 
     client_socket = initialize_communication(PORT);
 
@@ -156,17 +329,26 @@ void handle_request(int client_socket)
         exit(EXIT_FAILURE);
     }
 
-    if (set_packet(packet, buffer) < 0)
+    if (set_packet(client_packet, buffer) < 0)
     {
         close_communication(client_socket);
         exit(EXIT_FAILURE);
     }
 
-    
+    switch (client_packet->mode) {
 
-
-
-
+        case SCREENSHOT_MODE:
+            if (handle_file_transfer(client_socket, DEFUALT_SCREENSHOT_FILE_NAME, client_packet, SCREENSHOT_MODE) != 0)
+            {
+                close_communication(client_socket);
+            }
+        
+        case ENCRYPT_MODE:
+            if (handle_file_transfer(client_socket, DEFUALT_ENCRYPTED_FILE_NAME, client_packet, ENCRYPT_MODE) != 0)
+            {
+                close_communication(client_socket);
+            }
+    }
 
 
 }

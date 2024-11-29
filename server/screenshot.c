@@ -13,7 +13,7 @@ int save_jpeg(const char *filename, XImage *image) {
     FILE *outfile = fopen(filename, "wb");
     if (!outfile) {
         fprintf(stderr, "Error opening output file\n");
-        return 1;
+        return -1;
     }
 
     struct jpeg_compress_struct cinfo;
@@ -36,7 +36,7 @@ int save_jpeg(const char *filename, XImage *image) {
     if (!row) {
         fprintf(stderr, "Memory allocation failed\n");
         fclose(outfile);
-        return 1;
+        return -1;
     }
 
     while (cinfo.next_scanline < cinfo.image_height) {
@@ -62,7 +62,7 @@ int take_screenshot(const char *screenshot_filename) {
     Display *display = XOpenDisplay(NULL);
     if (display == NULL) {
         fprintf(stderr, "Unable to open X display\n");
-        return 1;
+        return -1;
     }
 
     Window root = DefaultRootWindow(display);
@@ -76,7 +76,7 @@ int take_screenshot(const char *screenshot_filename) {
     if (!image) {
         fprintf(stderr, "Failed to get image from X server\n");
         XCloseDisplay(display);
-        return 1;
+        return -1;
     }
 
     // Save the screenshot to a JPEG file
