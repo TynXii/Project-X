@@ -24,16 +24,21 @@ int set_packet(protocol_packet_t *packet, const char *payload, char mode) {
     // Validate the mode and handle accordingly
     packet->mode = mode;
 
-    if (payload == NULL) {
+    if (payload == NULL) 
+    {
         // For modes that don't require a payload
         if (mode == ACK_MODE || mode == FINAL_ACK_MODE) {
             packet->payload_length = 0;
             packet->checksum = 0; // No payload, no checksum required
-        } else {
+        } 
+        else 
+        {
             perror("Payload required for this mode but NULL provided");
             return -1;
         }
-    } else {
+    } 
+    else 
+    {
         // For modes that require a payload
         size_t payload_length = strlen(payload);
         if (payload_length > MAX_PAYLOAD_SIZE) {
@@ -204,57 +209,50 @@ int recv_data(int client_socket, char *buffer, size_t buffer_size)
 
 
 
-int handle_acknowledgment(int client_socket, protocol_packet_t *packet, char action_mode, char packet_mode) {
+int handle_acknowledgment(int client_socket, char action_mode, char packet_mode) {
     char buffer[HEADER_SIZE];
+    protocol_packet_t *temp_packet;
 
     switch (action_mode) {
-        case 'W': // Wait for a packet
+        case WAIT_FOR_ACK_PACKET: // Wait for an ACK or FINAL_ACK packet
             {
-                
                 if (recv_data(client_socket, buffer, sizeof(buffer)) <= 0) {
                     perror("Failed to receive data");
                     return -1;
                 }
 
                 // Parse the received data into a packet
-                if (set_packet(packet, buffer, 0) < 0) {
+                if (set_packet(temp_packet, buffer, 0) < 0) {
                     perror("Failed to parse packet");
                     return -1;
                 }
 
                 // Validate the mode of the received packet
-                if (packet->mode != ACK_MODE && packet->mode != FINAL_ACK_MODE) {
-                    fprintf(stderr, "Unexpected packet mode: %d\n", packet->mode);
+                if (temp_packet->mode != ACK_MODE && temp_packet->mode != FINAL_ACK_MODE) {
+                    fprintf(stderr, "Unexpected packet mode: %d\n", temp_packet->mode);
                     return -1;
                 }
 
-                return packet->mode == ACK_MODE ? 0 : 1; // Return 0 for ACK, 1 for FINAL_ACK
+                return temp_packet->mode == ACK_MODE ? 0 : 1; // Return 0 for ACK, 1 for FINAL_ACK
             }
 
-        case 'S': // Send a packet
+        case SEND_ACK_PACKET: // Send an ACK or FINAL_ACK packet
             {
-                if (packet_mode != ACK_MODE && packet_mode != FINAL_ACK_MODE) {
-                    fprintf(stderr, "Invalid packet mode for sending: %d\n", packet_mode);
+                // Prepare the acknowledgment packet
+                if (set_packet(temp_packet, NULL, packet_mode) < 0) {
+                    perror("Failed to set acknowledgment packet");
                     return -1;
                 }
 
-                // Prepare the acknowledgment packet
-                memset(packet, 0, sizeof(protocol_packet_t));
-                memcpy(packet->magic_number, (char[])MAGIC_NUMBER, sizeof(packet->magic_number));
-                packet->mode = packet_mode;
-                packet->payload_length = 0;
-                packet->checksum = 0;
-
                 // Serialize the packet
-                serialize_packet(packet, buffer);
+                serialize_packet(temp_packet, buffer);
 
                 // Send the acknowledgment packet
-                if (send(client_socket, buffer, HEADER_SIZE, 0) < 0) {
+                if (send(client_socket, buffer, sizeof(buffer), 0) < 0) {
                     perror("Failed to send acknowledgment packet");
                     return -1;
                 }
 
-                printf("Sent %s packet\n", packet_mode == ACK_MODE ? "ACK" : "FINAL_ACK");
                 return 0;
             }
 
@@ -268,23 +266,20 @@ int handle_acknowledgment(int client_socket, protocol_packet_t *packet, char act
 
 
 
-int get_file(int client_socket, const unsigned long long file_size, const char *file_name)
+
+int get_file(int client_socket, const size_t file_size, const char *file_name)
 {
-    unsigned long long remaining_data_size;
+    _Bool extra_packet
+    size_t  remaining_data_size;
     size_t packet_size;
     char buff[BUFFER_SIZE];
     FILE *given_file;
-    protocol_packet_t* ack, final_ack;
 
-    if (!(set_packet(ack, NULL, ACK_MODE) && set_packet(final_ack, NULL, FINAL_ACK_MODE)))
-    {
-        perror("Packets initialization failed.");
-        return -1;
-    }
+    extra_packet = (file_size % MAX_PAYLOAD_SIZE == 0) ? 0 : 1;
 
 
     given_file = fopen(file_name, "ab");
-    remaining_data_size = file_size;
+    remaining_data_size = file_size + HEADER_SIZE * (file_size % MAX_PAYLOAD_SIZE) + extra_packet * HEADER_SIZE; // Accounting for all data including header size
 
     while (remaining_data_size > 0) 
     {
@@ -298,7 +293,7 @@ int get_file(int client_socket, const unsigned long long file_size, const char *
             return -1;
         }
 
-        if (send_packet(client_socket, ack) < 0)
+        if (handle_acknowledgment(client_socket, SEND_ACK_PACKET, ACK_MODE) != 0)
         {
             perror("ACK packet sending failed.");
             return -1;
@@ -310,8 +305,17 @@ int get_file(int client_socket, const unsigned long long file_size, const char *
             fclose(given_file);
             return -1;
         }
+
+
         remaining_data_size -= packet_size;
     }
+
+    if (handle_acknowledgment(client_socket, SEND_ACK_PACKET, FINAL_ACK_MODE) != 1)
+        {
+            perror("FINAL_ACK packet sending failed.");
+            return -1;
+        }
+
 
     return remaining_data_size;
 
@@ -319,9 +323,9 @@ int get_file(int client_socket, const unsigned long long file_size, const char *
 }
 
 
-int send_file(int client_socket, const unsigned long long file_size, const char *file_name)
+int send_file(int client_socket, const size_t file_size, const char *file_name)
 {
-    unsigned long long remaining_data_size;
+    size_t remaining_data_size;
     size_t packet_size;
     char buff[BUFFER_SIZE];
     FILE *given_file;
@@ -329,7 +333,7 @@ int send_file(int client_socket, const unsigned long long file_size, const char 
     protocol_packet_t *s_packet;
 
     given_file = fopen(file_name, "rb");
-    remaining_data_size = file_size;
+    remaining_data_size = file_size; // Different from the get_file function. We don't need to account for headers.
 
     while (remaining_data_size > 0) 
     {
@@ -354,55 +358,52 @@ int send_file(int client_socket, const unsigned long long file_size, const char 
             return -1;
         }
 
+        if (handle_acknowledgment(client_socket, WAIT_FOR_ACK_PACKET, FINAL_ACK_MODE) != 0)
+        {
+            perror("ACK packet sending failed.");
+            return -1;
+        }
+
         remaining_data_size -= packet_size;
      
 
     }
 
-    return 0;
+    if (handle_acknowledgment(client_socket, WAIT_FOR_ACK_PACKET, FINAL_ACK_MODE) != 1)
+        {
+            perror("FINAL_ACK packet receiving failed.");
+            return -1;
+        }
+
+    return remaining_data_size;
 
 
 
 }
 
 
-
-int handle_file_transfer(int client_socket, const char *file_name, const protocol_packet_t *packet, const char mode)
+size_t get_file_size(const char *array, size_t num_bytes) 
 {
-    struct stat file_stat;
+    size_t number = 0;
+    size_t i;
 
-    switch (mode) 
+    for (i = 0 ; i < num_bytes; i++) 
     {
-        
-        case SCREENSHOT_MODE:
-            if (take_screenshot(file_name) < 0)
-            {
-                perror("Screenshot failed.");
-                return -1;
-            }
-            stat(file_name, &file_stat);
-
-
-        case ENCRYPT_MODE:
-            file_stat.st_size = *((unsigned long long *) packet->payload) // An ENCRYPT_MODE packet should have the file size specified in its payload
-
-
-
-
-
-            
-
+        number = (number << 8) | (unsigned char)array[i];
     }
 
-
+    return number;
 }
 
 
-int handle_request(int client_socket) 
+// Handles everything protocol-related
+int handle_request()
 {
     int client_socket;
     char buffer[BUFFER_SIZE];
-    protocol_packet_t* client_packet, server_packet;
+    size_t file_size;
+    struct stat file_stat;
+    protocol_packet_t* first_packet;
 
     client_socket = initialize_communication(PORT);
 
@@ -418,20 +419,60 @@ int handle_request(int client_socket)
         exit(EXIT_FAILURE);
     }
 
-    switch (client_packet->mode) {
-
-        case SCREENSHOT_MODE:
-            if (handle_file_transfer(client_socket, DEFUALT_SCREENSHOT_FILE_NAME, client_packet, SCREENSHOT_MODE) != 0)
-            {
-                close_communication(client_socket);
-            }
+    switch (first_packet->mode) 
+    {
         
-        case ENCRYPT_MODE:
-            if (handle_file_transfer(client_socket, DEFUALT_ENCRYPTED_FILE_NAME, client_packet, ENCRYPT_MODE) != 0)
+        case SCREENSHOT_MODE:
+            if (take_screenshot(DEFAULT_SCREENSHOT_FILE_NAME) != 0)
             {
-                close_communication(client_socket);
+                perror("Screenshot failed.");
+                return -1;
             }
+
+            stat(file_name, &file_stat);
+            file_size = file_stat.st_size;
+
+            if (send_file(client_socket, file_size, DEFAULT_SCREENSHOT_FILE_NAME) < 0)
+            {
+                perror("Sending file failed.");
+                close_communication(client_socket);
+                return -1;
+            }
+
+            printf("Screenshot sent successfully.\n");
+
+
+        case ENCRYPT_MODE:
+            file_size = get_file_size(packet->payload, sizeof(packet->payload)); // An ENCRYPT_MODE packet should have the file size specified in its payload
+
+            if (get_file(client_socket, file_size, DEFAULT_TO_ENCRYPT_FILE_NAME) < 0)
+            {
+                perror("Failed to receive file.");
+                close_communication(client_socket);
+                return -1;
+            }
+
+            if (encrypt_file(DEFAULT_TO_ENCRYPT_FILE_NAME, DEFAULT_ENCRYPTED_FILE_NAME) != 0)
+            {
+                perror("Failed to encrypt file.");
+                close_communication(client_socket);
+                return -1;
+            }
+
+            if (send_file(client_socket, file_size, DEFAULT_ENCRYPTED_FILE_NAME) < 0)
+            {
+                perror("Failed to send file.");
+                close_communication(client_socket);
+                return -1;
+            }
+
+            printf("Successfully encrypted file and sent it back to client.\n");
+      
+
     }
+
+    prinf("Program operation successfull.\n");
+    return 0;
 
 
 }
