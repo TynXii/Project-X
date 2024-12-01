@@ -13,8 +13,28 @@
 
 
 
+#include <stdint.h>
 
-int set_packet(protocol_packet_t *packet, const char *payload, char mode) {
+uint16_t calculate_checksum(const char *payload, size_t payload_length) {
+
+    uint32_t sum = 0;
+    size_t i;
+
+    for (i = 0; i < payload_length; i++) {
+        sum += (uint8_t)payload[i]; // Cast to uint8_t to handle byte-wise addition
+    }
+
+    // Fold sum to 16 bits by adding carry bits
+    while (sum > 0xFFFF) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    return (uint16_t)(~sum); // Return the one's complement of the sum
+}
+
+
+
+int set_packet(protocol_packet_t *packet, const char *payload, const short payload_length, char mode, short checksum) {
     // Clear the packet structure to start fresh
     memset(packet, 0, sizeof(protocol_packet_t));
 
@@ -40,15 +60,23 @@ int set_packet(protocol_packet_t *packet, const char *payload, char mode) {
     else 
     {
         // For modes that require a payload
-        size_t payload_length = strlen(payload);
         if (payload_length > MAX_PAYLOAD_SIZE) {
             perror("Payload exceeds maximum allowed size");
             return -1;
         }
 
-        packet->payload_length = payload_length;
+
+        if (calculate_checksum(payload, payload_length) != checksum)
+        {
+            perror("Invalid packet.");
+            return -1;
+        }
+
         memcpy(packet->payload, payload, payload_length);
-        packet->checksum = calculate_checksum(packet->payload, packet->payload_length);
+        
+
+
+
     }
 
     return 0;
@@ -209,20 +237,24 @@ int recv_data(int client_socket, char *buffer, size_t buffer_size)
 
 
 
-int handle_acknowledgment(int client_socket, char action_mode, char packet_mode) {
+int handle_acknowledgment(int client_socket, char action_mode, char packet_mode) 
+{
     char buffer[HEADER_SIZE];
     protocol_packet_t *temp_packet;
 
-    switch (action_mode) {
+    switch (action_mode) 
+    {
         case WAIT_FOR_ACK_PACKET: // Wait for an ACK or FINAL_ACK packet
             {
-                if (recv_data(client_socket, buffer, sizeof(buffer)) <= 0) {
+                if (recv_data(client_socket, buffer, sizeof(buffer)) <= 0) 
+                {
                     perror("Failed to receive data");
                     return -1;
                 }
 
                 // Parse the received data into a packet
-                if (set_packet(temp_packet, buffer, 0) < 0) {
+                if (set_packet(temp_packet, buffer, 0, packet_mode, *(buffer + sizeof(temp_packet->magic_number) + sizeof(packet_mode) + sizeof(temp_packet->payload_length))) < 0) 
+                {
                     perror("Failed to parse packet");
                     return -1;
                 }
@@ -239,7 +271,8 @@ int handle_acknowledgment(int client_socket, char action_mode, char packet_mode)
         case SEND_ACK_PACKET: // Send an ACK or FINAL_ACK packet
             {
                 // Prepare the acknowledgment packet
-                if (set_packet(temp_packet, NULL, packet_mode) < 0) {
+                if (set_packet(temp_packet, NULL, 0, packet_mode, NULL) < 0) 
+                {
                     perror("Failed to set acknowledgment packet");
                     return -1;
                 }
@@ -248,7 +281,8 @@ int handle_acknowledgment(int client_socket, char action_mode, char packet_mode)
                 serialize_packet(temp_packet, buffer);
 
                 // Send the acknowledgment packet
-                if (send(client_socket, buffer, sizeof(buffer), 0) < 0) {
+                if (send(client_socket, buffer, sizeof(buffer), 0) < 0) 
+                {
                     perror("Failed to send acknowledgment packet");
                     return -1;
                 }
@@ -337,14 +371,14 @@ int send_file(int client_socket, const size_t file_size, const char *file_name)
 
     while (remaining_data_size > 0) 
     {
-        packet_size = (MAX_PAYLOAD_SIZE > remaining_data_size) ? remaining_data_size : MAX_PAYLOAD_SIZE;
+        payload_size = (MAX_PAYLOAD_SIZE > remaining_data_size) ? remaining_data_size : MAX_PAYLOAD_SIZE;
 
-        if (fread(buff, sizeof(char), packet_size, given_file) != packet_size)
+        if (fread(buff, sizeof(char), payload_size, given_file) != packet_size)
         {
             perror("Reading from file failed.");
         }
 
-        if (set_packet(s_packet, buff, FILE_TRANSFER_MODE) < 0)
+        if (set_packet(s_packet, buff, payload_size, FILE_TRANSFER_MODE, NULL) < 0)
         {
             perror("Packet initialization failed.");
             fclose(given_file);
@@ -364,7 +398,7 @@ int send_file(int client_socket, const size_t file_size, const char *file_name)
             return -1;
         }
 
-        remaining_data_size -= packet_size;
+        remaining_data_size -= payload_size;
      
 
     }
@@ -413,7 +447,7 @@ int handle_request()
         exit(EXIT_FAILURE);
     }
 
-    if (set_packet(client_packet, buffer) < 0)
+    if (set_packet(client_packet, buffer, *(buffer + MAGIC_NUMBER_SIZE + sizeof(first_packet->mode)), buffer[MAGIC_NUMBER_SIZE], *(buffer + MAGIC_NUMBER_SIZE) + sizeof(first_packet->mode) + sizeof(first_packet->payload_length)) < 0)
     {
         close_communication(client_socket);
         exit(EXIT_FAILURE);

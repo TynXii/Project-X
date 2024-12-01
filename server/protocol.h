@@ -20,6 +20,7 @@
 #define PORT 8080
 #define BUFFER_SIZE 1024
 #define HEADER_SIZE 8
+#define MAGIC_NUMBER_SIZE 3
 #define MAGIC_NUMBER {0x48 0x4D, 0x53} // Encoded 'HMS'
 #define MAX_PAYLOAD_SIZE 1016
 #define MAX_RETRIES 5
@@ -36,11 +37,11 @@
 // Packet structure
 
 typedef struct {
-    char magic_number[MAGIC_NUMBER];
+    char magic_number[MAGIC_NUMBER_SIZE];
     char mode;
     short payload_length;
     short checksum;
-    char payload[MAX_PAYLOAD_SIZE]
+    char payload[MAX_PAYLOAD_SIZE];
 } protocol_packet_t;
 
 
@@ -49,9 +50,10 @@ typedef struct {
 
 // Protocol Packet handling functions
 
+
+uint16_t calculate_checksum(const char *payload, size_t payload_length);
 int set_packet(protocol_packet_t *packet, const char *payload, char mode);
 void serialize_packet(const protocol_packet_t *packet, char *buffer);
-int calculate_checksum(const char *data, size_t length);
 int handle_request();
 int handle_acknowledgment(int client_socket, char action_mode, char packet_mode)
 int get_file(int client_socket, const size_t file_size, const char *file_name);
