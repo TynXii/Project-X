@@ -472,6 +472,7 @@ int handle_request()
     }
 
     prinf("Program operation successfull.\n");
+    close_communication(client_socket);
     return 0;
 
 
