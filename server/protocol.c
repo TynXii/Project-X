@@ -47,6 +47,7 @@ int set_packet(protocol_packet_t *packet, const char *payload, const short paylo
     if (payload == NULL) 
     {
         // For modes that don't require a payload
+        packet = (protocol_packet_t *) realloc(packet, HEADER_SIZE);
         if (mode == ACK_MODE || mode == FINAL_ACK_MODE) {
             packet->payload_length = 0;
             packet->checksum = 0; // No payload, no checksum required
@@ -242,6 +243,8 @@ int handle_acknowledgment(int client_socket, char action_mode, char packet_mode)
     char buffer[HEADER_SIZE];
     protocol_packet_t *temp_packet;
 
+    temp_packet = (protocol_packet_t *) malloc(sizeof(HEADER_SIZE));
+
     switch (action_mode) 
     {
         case WAIT_FOR_ACK_PACKET: // Wait for an ACK or FINAL_ACK packet
@@ -366,6 +369,8 @@ int send_file(int client_socket, const size_t file_size, const char *file_name)
     int packet_size;
     protocol_packet_t *s_packet;
 
+    s_packet = (protocol_packet_t *) malloc(sizeof(protocol_packet_t));
+
     given_file = fopen(file_name, "rb");
     remaining_data_size = file_size; // Different from the get_file function. We don't need to account for headers.
 
@@ -438,6 +443,8 @@ int handle_request()
     size_t file_size;
     struct stat file_stat;
     protocol_packet_t* first_packet;
+
+    first_packet = (protocol_packet_t *) malloc(sizeof(protocol_packet_t));
 
     client_socket = initialize_communication(PORT);
 
