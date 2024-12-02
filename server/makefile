@@ -8,4 +8,4 @@ server: server.c encryption.c screenshot.c protocol.c
 	$(CC) $(CFLAGS) -o server server.c encryption.c screenshot.c protocol.c $(LIBS)
 
 clean:
-	rm -f server screenshot.jpg screenshot_encrypted.jpg example_encrypted.jpg
+	rm -f server screenshot.jpg to_encrypt_file.txt encrypted_file.txt
