@@ -21,7 +21,7 @@ run_program() {
 # Function to delete the file
 delete_file() {
     echo "Deleting file $FILE..."
-    rm "$FILE"
+    rm -f "$FILE"
 }
 
 # Perform the action based on the argument
