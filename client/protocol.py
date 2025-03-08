@@ -13,13 +13,13 @@ from enum import Enum
 
 class PacketModes(Enum):
     # Main Packet Modes
-    SCREENSHOT_MODE = 0x01
-    ENCRYPT_MODE = 0x02
+    SCREENSHOT_MODE = 1
+    ENCRYPT_MODE = 2
 
     # Modes for handling main packet modes
-    FILE_TRANSFER_MODE = 0x03
-    ACK_MODE = 0x04
-    FINAL_ACK_MODE = 0x05
+    FILE_TRANSFER_MODE = 3
+    ACK_MODE = 4
+    FINAL_ACK_MODE = 5
 
 class AckPacket(Enum):
     WAIT_FOR_ACK_PACKET = 'w'
@@ -37,7 +37,7 @@ DEFAULT_TO_ENCRYPT_FILE_NAME = "to_encrypt.txt"
 DEFAULT_SCREENSHOT_FILE_NAME = "screenshot.jpg"
 SERVER_ADDRESS = '0.0.0.0' # Replace with your server IP address. Leaving it as-is is also fine.
 
-EXIT_OPTION = 0x03
+EXIT_OPTION = 3
 
 class ProtocolPacket:
     def __init__(self, mode: int, payload: str, payload_length: int, checksum: int):
@@ -204,23 +204,28 @@ def get_file(client_socket: socket.socket, file_name: str, file_size: int) -> Op
         remaining_data_size -= packet_size
 
 
-def get_request() -> list(Optional[int], Optional[str]):
+def get_request() -> [Optional[int], Optional[str]]:
     print("\n=== Main Menu ===")
     print("1. Request a screenshot")
     print("2. Request encryption for a file")
     print("3. Exit")
     
-    choice = int(input("Enter your choice (1/2/3): ").strip())
+    try:
+        choice = int(input("Enter your choice (1/2/3): "))
+    except ValueError:
+        print("Invalid input! Please enter a number.")
+        return [None, None]
+
+    if choice == EXIT_OPTION:
+        print("Exiting program, goodbye!")
+        return [None, None]
 
     match choice:
         case PacketModes.SCREENSHOT_MODE:
             return [PacketModes.SCREENSHOT_MODE, None]
         case PacketModes.ENCRYPT_MODE:
-            file_name = input("Enter file name to encrypt: ").stript()
+            file_name = input("Enter file name to encrypt: ").strip()
             return [PacketModes.ENCRYPT_MODE, file_name]
-        case EXIT_OPTION:
-            print("Exiting program, goodbye!")
-            return [None, None]
         case _:
             print("Invalid option. Please try again.")
             return [None, None]

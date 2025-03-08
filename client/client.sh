@@ -15,7 +15,7 @@ ACTION=$1
 # Function to run the program (replace this with the actual command to run your program)
 run_program() {
     echo "Running the program..."
-    python3 your_program.py
+    python client.py
 }
 
 # Function to delete the file

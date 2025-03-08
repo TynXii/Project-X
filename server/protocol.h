@@ -21,7 +21,7 @@
 #define BUFFER_SIZE 1024
 #define HEADER_SIZE 8
 #define MAGIC_NUMBER_SIZE 3
-#define MAGIC_NUMBER {0x48 0x4D, 0x53} // Encoded 'HMS'
+#define MAGIC_NUMBER {0x48, 0x4D, 0x53} // Encoded 'HMS'
 #define MAX_PAYLOAD_SIZE 1016
 #define MAX_RETRIES 5
 #define RETRY_DELAY 1000
@@ -55,9 +55,9 @@ uint16_t calculate_checksum(const char *payload, size_t payload_length);
 int set_packet(protocol_packet_t *packet, const char *payload, char mode);
 void serialize_packet(const protocol_packet_t *packet, char *buffer);
 int handle_request();
-int handle_acknowledgment(int client_socket, char action_mode, char packet_mode)
+int handle_acknowledgment(int client_socket, char action_mode, char packet_mode);
 int get_file(int client_socket, const size_t file_size, const char *file_name);
-int send_file(int client_socket, const size_t file_size, const char *file_name)
+int send_file(int client_socket, const size_t file_size, const char *file_name);
 int initialize_communication(int port);
 void close_communication(int sock);
 int recv_data(int client_socket, char *buffer, size_t buffer_size);

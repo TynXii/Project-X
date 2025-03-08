@@ -6,6 +6,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 #include "protocol.h"
 #include "screenshot.h"
@@ -122,7 +123,7 @@ int send_packet(int client_socket, const protocol_packet_t *packet)
 
     serialize_packet(packet, buff);
 
-    if (send(client_socket, buff, packet_size) < 0)
+    if (send(client_socket, buff, packet_size, 0) < 0)
     {
         perror("Send failed");
         return -1;
@@ -181,7 +182,8 @@ int initialize_communication(int port)
     if (client_socket < 0)
     {
         perror("Accept failed");
-        continue;
+        close_communication(server_socket);
+        exit(EXIT_FAILURE);
     }
 
     close(server_socket);
@@ -366,7 +368,7 @@ int send_file(int client_socket, const size_t file_size, const char *file_name)
     size_t packet_size;
     char buff[BUFFER_SIZE];
     FILE *given_file;
-    int packet_size;
+    int payload_size;
     protocol_packet_t *s_packet;
 
     s_packet = (protocol_packet_t *) malloc(sizeof(protocol_packet_t));
@@ -454,7 +456,7 @@ int handle_request()
         exit(EXIT_FAILURE);
     }
 
-    if (set_packet(client_packet, buffer, *(buffer + MAGIC_NUMBER_SIZE + sizeof(first_packet->mode)), buffer[MAGIC_NUMBER_SIZE], *(buffer + MAGIC_NUMBER_SIZE) + sizeof(first_packet->mode) + sizeof(first_packet->payload_length)) < 0)
+    if (set_packet(first_packet, buffer, *(buffer + MAGIC_NUMBER_SIZE + sizeof(first_packet->mode)), buffer[MAGIC_NUMBER_SIZE], *(buffer + MAGIC_NUMBER_SIZE) + sizeof(first_packet->mode) + sizeof(first_packet->payload_length)) < 0)
     {
         close_communication(client_socket);
         exit(EXIT_FAILURE);
@@ -470,7 +472,7 @@ int handle_request()
                 return -1;
             }
 
-            stat(file_name, &file_stat);
+            stat(DEFAULT_SCREENSHOT_FILE_NAME, &file_stat);
             file_size = file_stat.st_size;
 
             if (send_file(client_socket, file_size, DEFAULT_SCREENSHOT_FILE_NAME) < 0)
@@ -481,6 +483,7 @@ int handle_request()
             }
 
             printf("Screenshot sent successfully.\n");
+            break;
 
 
         case ENCRYPT_MODE:
@@ -508,7 +511,7 @@ int handle_request()
             }
 
             printf("Successfully encrypted file and sent it back to client.\n");
-      
+            break;
 
     }
 
