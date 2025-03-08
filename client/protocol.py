@@ -55,10 +55,10 @@ def close_communication(socket: socket.socket) -> None:
     
     
 def calculate_checksum(payload, payload_length) -> int:
-        return ~sum(payload) & 0xFFFF
+    return ~sum(payload) & 0xFFFF
 
 # Important to understand that if there should be no payload to the packet, the payload parameter should be set to None
-def set_packet(mode: int, payload: Optional[str], payload_length: int, checksum: int) -> Optional[ProtocolPacket]:
+def set_packet(mode: int, payload: Optional[bytes], payload_length: int, checksum: int) -> Optional[ProtocolPacket]:
     match mode:
         case PacketModes.FILE_TRANSFER_MODE | PacketModes.ENCRYPT_MODE:
             if checksum != calculate_checksum(payload, payload_length):
@@ -66,7 +66,7 @@ def set_packet(mode: int, payload: Optional[str], payload_length: int, checksum:
                 return None
             return ProtocolPacket(mode, payload, payload_length, checksum)
         case PacketModes.ACK_MODE | PacketModes.FINAL_ACK_MODE | PacketModes.SCREENSHOT_MODE:
-            return ProtocolPacket(mode, None, 0, 0)
+            return ProtocolPacket(mode, b'', 0, 0)
         case _:
             print("Invalid packet mode")
             return None
@@ -156,9 +156,9 @@ def send_file_to_encrypt(client_socket: socket.socket, file_name: str) -> Option
     start = 0
     stop = MAX_PAYLOAD_SIZE
 
-    while (remaining_data_size):
-        payload_size = BUFFER_SIZE if (remaining_data_size > BUFFER_SIZE) else remaining_data_size
-        current_packet = set_packet(PacketModes.FILE_TRANSFER_MODE, data[start:stop], payload_size, calculate_checksum(data[stat:stop], payload_size))
+    while remaining_data_size > 0:
+        payload_size = MAX_PAYLOAD_SIZE if remaining_data_size > MAX_PAYLOAD_SIZE else remaining_data_size
+        current_packet = set_packet(PacketModes.FILE_TRANSFER_MODE, data[start:stop], payload_size, calculate_checksum(data[start:stop], payload_size))
         if not current_packet:
             print("Packet initialization failed.")
             return None
@@ -167,7 +167,7 @@ def send_file_to_encrypt(client_socket: socket.socket, file_name: str) -> Option
             print("Packet sending failed.")
             return None
 
-        if remaining_data_size < MAX_PAYLOAD_SIZE:
+        if remaining_data_size <= MAX_PAYLOAD_SIZE:
             if not handle_acknowledgment(client_socket, PacketModes.FINAL_ACK_MODE, AckPacket.WAIT_FOR_ACK_PACKET):
                 return None
             else:
@@ -180,28 +180,33 @@ def send_file_to_encrypt(client_socket: socket.socket, file_name: str) -> Option
         stop += payload_size
         remaining_data_size -= payload_size
 
+    return 1
+
 
 def get_file(client_socket: socket.socket, file_name: str, file_size: int) -> Optional[int]:
     file = open(file_name, "ab")
-    extra_packet = 0 if (file_size % MAX_PAYLOAD_SIZE == 0) else 1
+    extra_packet = 0 if file_size % MAX_PAYLOAD_SIZE == 0 else 1
     remaining_data_size = file_size + HEADER_SIZE * (file_size // MAX_PAYLOAD_SIZE + extra_packet)
 
-    while (remaining_data_size):
-        packet_size = BUFFER_SIZE if (remaining_data_size < BUFFER_SIZE) else  remaining_data_size
+    while remaining_data_size > 0:
+        packet_size = BUFFER_SIZE if remaining_data_size > BUFFER_SIZE else remaining_data_size
         data = client_socket.recv(packet_size)
-        if not data or (data[len(MAGIC_NUMBER)] != PacketModes.FILE_TRANSFER_MODE):
+        if not data or data[len(MAGIC_NUMBER)] != PacketModes.FILE_TRANSFER_MODE.value:
             print("Invalid packet.")
             return None
-        file.write(data)
+        file.write(data[HEADER_SIZE:])
 
-        if remaining_data_size < BUFFER_SIZE:
-            if not handle_acknowledgment(client_socket, PacketModes.FINAL_ACK_MODEACK_MODE, AckPacket.SEND_ACK_PACKET):
+        if remaining_data_size <= BUFFER_SIZE:
+            if not handle_acknowledgment(client_socket, PacketModes.FINAL_ACK_MODE.value, AckPacket.SEND_ACK_PACKET):
                 return None
             return 1
         else:
-            if not handle_acknowledgment(client_socket, PacketModes.ACK_MODE, AckPacket.SEND_ACK_PACKET):
+            if not handle_acknowledgment(client_socket, PacketModes.ACK_MODE.value, AckPacket.SEND_ACK_PACKET):
                 return None
         remaining_data_size -= packet_size
+
+    file.close()
+    return 1
 
 
 def get_request() -> [Optional[int], Optional[str]]:
@@ -234,6 +239,8 @@ def get_request() -> [Optional[int], Optional[str]]:
 
 def make_request() -> Optional[int]:
     client_socket = initialize_communication(PORT, SERVER_ADDRESS)
+    if not client_socket:
+        return None
 
     request = get_request()
 
@@ -241,7 +248,7 @@ def make_request() -> Optional[int]:
         case None:
             pass
         case PacketModes.SCREENSHOT_MODE:
-            file_size = client_socket.recv(BUFFER_SIZE)[HEADER_SIZE:]
+            file_size = int.from_bytes(client_socket.recv(HEADER_SIZE)[HEADER_SIZE:], byteorder='big')
             if not get_file(client_socket, DEFAULT_SCREENSHOT_FILE_NAME, file_size):
                 print("File collecting failed.")
                 close_communication(client_socket)
@@ -253,11 +260,17 @@ def make_request() -> Optional[int]:
                 print("File sending failed.")
                 close_communication(client_socket)
                 return None
-            file_size = client_socket.recv(BUFFER_SIZE)[HEADER_SIZE:]
-            if not get_file(client_socket, request[1], file_size):
+            file_size = int.from_bytes(client_socket.recv(HEADER_SIZE)[HEADER_SIZE:], byteorder='big')
+            if not get_file(client_socket, DEFAULT_ENCRYPTED_FILE_NAME, file_size):
                 print("File collecting failed.")
                 close_communication(client_socket)
                 return None
             print(f"Successfully downloaded encrypted file and saved it as {DEFAULT_ENCRYPTED_FILE_NAME}")
             return 1
-            
+        case _:
+            print("Invalid request mode.")
+            close_communication(client_socket)
+            return None
+
+    close_communication(client_socket)
+    return 1
