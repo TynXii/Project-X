@@ -1,0 +1,157 @@
+# Test Cases for Client-Server Interaction
+
+## I. SCREENSHOT_MODE Tests
+
+### Test Case 1: Successful Screenshot Request
+**Objective:** Verify the client can successfully request and receive a screenshot.
+**Steps:**
+1. Client connects to the server.
+2. Client sends a `SCREENSHOT_MODE` request packet.
+   - Magic Number: Correct
+   - Mode: `SCREENSHOT_MODE`
+   - Payload Length: 0
+   - Checksum: 0
+3. Client expects a `FILE_SIZE_MODE` packet from the server.
+   - Client receives the header, unpacks it.
+   - Validates: Magic Number, Mode (`FILE_SIZE_MODE`), Payload Length (should be 8 for uint64_t).
+   - Client receives the payload (8 bytes for file size).
+   - Client calculates CRC32 checksum of the received payload and validates it against the checksum from the header.
+   - Client extracts the file size.
+4. Client sends an `ACK_MODE` packet to the server.
+   - Magic Number: Correct
+   - Mode: `ACK_MODE`
+   - Payload Length: 0
+   - Checksum: 0
+5. Client calls `get_file` to receive the screenshot data:
+   - Client receives data in chunks (each as a `FILE_TRANSFER_MODE` packet).
+   - For each chunk received, client sends an `ACK_MODE` packet.
+   - After the last chunk, client sends a `FINAL_ACK_MODE` packet.
+6. Client saves the received data as `test_screenshot.jpg`.
+**Verification:**
+- `test_screenshot.jpg` is created.
+- The size of `test_screenshot.jpg` matches the file size received in the `FILE_SIZE_MODE` packet.
+- (Optional) `test_screenshot.jpg` contains valid JPEG magic bytes at the beginning (e.g., `FF D8 FF`).
+**Server Behavior:**
+- Server receives `SCREENSHOT_MODE` request.
+- Server takes a screenshot, saves it to a temporary file.
+- Server gets the size of the temporary screenshot file.
+- Server sends `FILE_SIZE_MODE` packet containing this size.
+- Server waits for and receives `ACK_MODE` from client.
+- Server sends the screenshot file content in chunks using `FILE_TRANSFER_MODE` packets.
+- Server waits for and receives `ACK_MODE` after each chunk, and `FINAL_ACK_MODE` after the last chunk.
+- Server cleans up the temporary screenshot file.
+
+### Test Case 2: Server X11 Display Unavailable (Conceptual)
+**Objective:** Observe server behavior if it cannot take a screenshot.
+**Note:** This is harder to automate in the current client test script. Relies on server-side error handling.
+**Expected Server Behavior (Ideal):**
+- Server fails to take a screenshot.
+- Server sends an error response packet to the client (e.g., a specific error mode or an ACK with an error flag - currently not implemented).
+- Or, server closes connection gracefully after logging error.
+**Client Behavior:**
+- Client might timeout waiting for `FILE_SIZE_MODE` or receive an error from the server.
+
+## II. ENCRYPT_MODE Tests
+
+### Test Case 1: Successful File Encryption
+**Objective:** Verify the client can successfully request file encryption and receive the encrypted file.
+**Steps:**
+1. Client creates a sample text file (`client/test_to_encrypt.txt`) with known content (e.g., "Hello, this is a test file for encryption!").
+2. Client connects to the server.
+3. Client sends an initial `ENCRYPT_MODE` request packet:
+   - Magic Number: Correct
+   - Mode: `ENCRYPT_MODE`
+   - Payload: 8-byte packed size of `client/test_to_encrypt.txt`.
+   - Payload Length: 8.
+   - Checksum: CRC32 of the payload (packed file size).
+4. Client calls `send_file_to_encrypt` to send the content of `client/test_to_encrypt.txt`:
+   - Client sends file data in chunks (each as a `FILE_TRANSFER_MODE` packet).
+   - Server sends `ACK_MODE` after each chunk.
+   - Server sends `FINAL_ACK_MODE` after the last chunk. Client waits for these.
+5. Client expects a `FILE_SIZE_MODE` packet from the server (for the encrypted file).
+   - Client receives the header, unpacks it.
+   - Validates: Magic Number, Mode (`FILE_SIZE_MODE`), Payload Length (should be 8).
+   - Client receives the payload (8 bytes for encrypted file size).
+   - Client calculates CRC32 checksum of the payload and validates it against the checksum from the header.
+   - Client extracts the encrypted file size.
+6. Client sends an `ACK_MODE` packet to the server.
+7. Client calls `get_file` to receive the encrypted file data:
+   - Client receives data in chunks.
+   - Client sends `ACK_MODE` for each chunk, `FINAL_ACK_MODE` for the last.
+8. Client saves the received data as `client/test_encrypted_output.enc`.
+**Verification:**
+- `client/test_encrypted_output.enc` is created.
+- The size of `client/test_encrypted_output.enc` matches the file size received in the `FILE_SIZE_MODE` packet.
+- (Advanced) If a corresponding decryption utility were available, decrypting `test_encrypted_output.enc` with the known fixed key/IV should yield the original content of `test_to_encrypt.txt`.
+**Server Behavior:**
+- Server receives `ENCRYPT_MODE` request with original file size.
+- Server calls `get_file` to receive the client's file, saving to a temporary input file.
+- Server encrypts the temporary input file to a new temporary output file (using fixed key/IV).
+- Server cleans up the temporary input file.
+- Server gets the size of the temporary encrypted output file.
+- Server sends `FILE_SIZE_MODE` packet with this size.
+- Server waits for and receives `ACK_MODE`.
+- Server sends the encrypted file content using `send_file`.
+- Server cleans up the temporary encrypted output file.
+
+### Test Case 2: Client Requests Encryption for a Non-Existent File
+**Objective:** Verify client-side validation for non-existent files.
+**Steps:**
+1. Client attempts to initiate `ENCRYPT_MODE` for a filename that does not exist.
+**Verification:**
+- The client's `get_request()` function (or `make_request()` before sending) should detect that the file does not exist (using `os.path.isfile`).
+- Client should print an error message locally.
+- Client should not connect or send any packets to the server for this request.
+- This was implemented in `client/protocol.py` in subtask 3.
+
+## III. General Protocol Tests (Conceptual / Harder to script on client-side without server modification)
+
+### Test Case 1: Server Not Running
+**Objective:** Verify client handles server unavailability.
+**Client Behavior:**
+- `initialize_communication` in `client/protocol.py` should fail to connect.
+- Client should print an appropriate error message (e.g., "Connection refused").
+- Client should not proceed with sending requests.
+
+### Test Case 2: Incorrect Magic Number Sent by Client
+**Objective:** Verify server rejects packets with bad magic numbers.
+**Server Behavior:**
+- Server receives a packet.
+- Server deserializes header and checks magic number.
+- If magic number is incorrect, server should log the error and close the connection or send an error response (current server implementation closes connection and returns `HR_INVALID_MAGIC`).
+**Client Behavior (if server closes connection):**
+- Subsequent send/receive operations on the client would fail (e.g., `BrokenPipeError` or connection reset).
+
+### Test Case 3: Incorrect Checksum Sent by Client (for packets with payload)
+**Objective:** Verify server rejects packets with incorrect checksums.
+**Example:** Client sends `ENCRYPT_MODE` request with file size, but the CRC32 checksum in the header is deliberately wrong.
+**Server Behavior:**
+- Server receives the packet.
+- Server deserializes header and payload.
+- Server calls `set_packet` which validates the received checksum against the payload.
+- If checksum mismatch, `set_packet` returns an error.
+- `handle_request` should map this to `HR_SET_PACKET_FAILED` and close the connection.
+**Client Behavior (if server closes connection):**
+- Subsequent send/receive operations would fail.
+
+### Test Case 4: Server Sends Packet with Incorrect Checksum
+**Objective:** Verify client rejects packets with incorrect checksums.
+**Example:** Server sends `FILE_SIZE_MODE` packet, but the CRC32 checksum in its header is deliberately wrong (would require server modification to test).
+**Client Behavior:**
+- Client receives header and payload for `FILE_SIZE_MODE`.
+- Client calculates checksum of payload and compares with checksum from header.
+- If mismatch, client should print an error and terminate the specific operation (e.g., screenshot or encryption process).
+
+### Test Case 5: Timeout during data transfer
+**Objective:** Verify graceful handling of network timeouts.
+**Client/Server Behavior:**
+- If `recv_data` times out on server, or `client_socket.recv` times out on client, they should handle this (e.g. server might return error, client might print error and abort).
+- The current server `recv_data` has a retry mechanism for `EAGAIN`/`EWOULDBLOCK` but will eventually return -1. Client does not have explicit timeout on `recv` in test script yet.
+
+### Test Case 6: Packet Delimiter (Not currently used, but if it were)
+**Objective:** If a delimiter was used to mark end of payload, test for missing/incorrect delimiter.
+**Note:** Current protocol uses `payload_length` field, so this is not applicable.
+
+---
+End of Test Cases
+---
