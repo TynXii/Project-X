@@ -186,7 +186,7 @@ int recv_data(int client_socket, char *buffer, size_t buffer_size);
  *                 For now, it takes protocol_packet_t and serializes internally before sending.
  * @return 0 on success, -1 on error.
  */
-int send_packet(int client_socket, protocol_packet_t *packet);
+int send_packet(int client_socket, const protocol_packet_t *packet);
 
 
 
