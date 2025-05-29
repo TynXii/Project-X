@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # The name of the file to manage
-FILE="encrypted_file.txt"
+FILE="test_client_to_encrypt.txt"
 
 # Check if an argument was provided
 if [ $# -eq 0 ]; then

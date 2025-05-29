@@ -294,7 +294,6 @@ int recv_data(int client_socket, char *buffer, size_t buffer_size) {
                     // Retry after an interruption
                     continue;
                 case EAGAIN:
-                case EWOULDBLOCK:
                     // Retry due to temporarily no data available
                     if (retry_count < MAX_RETRIES) {
                         retry_count++;
@@ -449,13 +448,11 @@ int handle_acknowledgment(int client_socket, char action_mode, char packet_mode)
  *         A specific negative HR_ERROR code on failure (e.g., file open error, receive error, ACK error).
  */
 int get_file(int client_socket, const size_t file_size, const char *file_name) {
-    // _Bool extra_packet; // This variable seems unused with current logic.
     size_t remaining_data_size;
     size_t packet_size;
     char buff[BUFFER_SIZE];
     FILE *given_file;
 
-    extra_packet = (file_size % MAX_PAYLOAD_SIZE == 0) ? 0 : 1;
 
     given_file = fopen(file_name, "wb"); // Use "wb" to create or truncate
     if (!given_file) {

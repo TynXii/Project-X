@@ -17,6 +17,8 @@ import os
 import struct
 import time # For potential delays or specific timeout tests if added later
 
+TEST_ENCRYPT_INPUT_FILENAME = "test_client_to_encrypt.txt"
+
 # Assuming client.protocol is in the same directory or PYTHONPATH is set up
 try:
     from protocol import (

@@ -10,6 +10,6 @@
 int save_jpeg(const char *filename, XImage *image);
 
 // Function to capture a screenshot and save it as an XImage
-int take_screenshot(const char *screenshot_filename);
+char* take_screenshot();
 
 #endif

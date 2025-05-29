@@ -93,7 +93,7 @@ int save_jpeg(const char *filename, XImage *image) {
  *         Returns NULL if any error occurs during the process (e.g., X11 error,
  *         temporary file creation error, JPEG saving error).
  */
-char* take_screenshot(void) {
+char* take_screenshot() {
     Display *display;
     Window root;
     char* screenshot_filename = NULL; // Will hold the generated temporary filename
